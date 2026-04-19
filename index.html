@@ -25990,6 +25990,20 @@
         return new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 }).format(num);
       }
 
+      const DEFAULT_NETWORK_WEIGHTS = {
+        avgPerSchool: 45,
+        leadRatio: 25,
+        officeRatio: 15,
+        elementaryRatio: 15,
+      };
+
+      const NETWORK_WEIGHT_FIELDS = [
+        { key: "avgPerSchool", label: "교당 평균 지원액" },
+        { key: "leadRatio", label: "선도학교 비율" },
+        { key: "officeRatio", label: "교육청 예산 비중" },
+        { key: "elementaryRatio", label: "초등 비중" },
+      ];
+
       function hashCode(str) {
         let h = 0;
         for (let i = 0; i < str.length; i++) {
@@ -26037,6 +26051,7 @@
         const [sortKey, setSortKey] = useState("id");
         const [sortDir, setSortDir] = useState("asc");
         const [page, setPage] = useState(1);
+        const [networkWeights, setNetworkWeights] = useState(() => ({ ...DEFAULT_NETWORK_WEIGHTS }));
 
         useEffect(() => {
           document.documentElement.classList.toggle("dark", darkMode);
@@ -26406,6 +26421,18 @@
           };
         }, [darkMode]);
 
+        const networkWeightSummary = useMemo(() => {
+          const total = NETWORK_WEIGHT_FIELDS.reduce((sum, field) => sum + Number(networkWeights[field.key] || 0), 0);
+          const effectiveWeights = total > 0 ? networkWeights : DEFAULT_NETWORK_WEIGHTS;
+          const divisor = total > 0 ? total : NETWORK_WEIGHT_FIELDS.reduce((sum, field) => sum + DEFAULT_NETWORK_WEIGHTS[field.key], 0);
+          const normalized = NETWORK_WEIGHT_FIELDS.reduce((acc, field) => {
+            acc[field.key] = Number(effectiveWeights[field.key] || 0) / divisor;
+            return acc;
+          }, {});
+          const labels = NETWORK_WEIGHT_FIELDS.map((field) => `${field.label}(${Number(networkWeights[field.key] || 0)}%)`);
+          return { total, normalized, labels, isFallback: total <= 0 };
+        }, [networkWeights]);
+
         const networkOption = useMemo(() => {
           const maxAvg = Math.max(...REGIONAL_BUDGET.map((r) => r.avgPerSchool));
           const vectors = REGIONAL_BUDGET.map((r) => {
@@ -26432,10 +26459,10 @@
               const a = vectors[i].vector;
               const b = vectors[j].vector;
               const dist = Math.sqrt(
-                Math.pow(a[0] - b[0], 2) * 0.45 +
-                  Math.pow(a[1] - b[1], 2) * 0.25 +
-                  Math.pow(a[2] - b[2], 2) * 0.15 +
-                  Math.pow(a[3] - b[3], 2) * 0.15
+                Math.pow(a[0] - b[0], 2) * networkWeightSummary.normalized.avgPerSchool +
+                  Math.pow(a[1] - b[1], 2) * networkWeightSummary.normalized.leadRatio +
+                  Math.pow(a[2] - b[2], 2) * networkWeightSummary.normalized.officeRatio +
+                  Math.pow(a[3] - b[3], 2) * networkWeightSummary.normalized.elementaryRatio
               );
               const score = Math.max(0, 1 - dist);
               pairs.push({ source: vectors[i].region, target: vectors[j].region, score });
@@ -26449,7 +26476,7 @@
             degree[p.source] = degree[p.source] || 0;
             degree[p.target] = degree[p.target] || 0;
             if (p.score < 0.76) return;
-            if (degree[p.source] >= 3 || degree[p.target] >= 3) return;
+            if (degree[p.source] >= 5 || degree[p.target] >= 5) return;
             degree[p.source] += 1;
             degree[p.target] += 1;
             links.push({ source: p.source, target: p.target, value: Number(p.score.toFixed(2)) });
@@ -26503,7 +26530,7 @@
               },
             ],
           };
-        }, [darkMode]);
+        }, [darkMode, networkWeightSummary]);
 
         const handleTreemapClick = (params) => {
           if (!params || params.seriesType !== "treemap") return;
@@ -26776,23 +26803,75 @@
 
               {activeTab === "network" && (
                 <section className={"rounded-2xl p-4 md:p-5 shadow-soft " + darkCard}>
-                  <h2 className="font-display text-lg font-bold mb-1">정책 유사도 네트워크</h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-300 mb-4">노드=교육청, 링크=예산구조·학교구성 유사도(임계치 이상만 연결)</p>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-4">
+                    <div>
+                      <h2 className="font-display text-lg font-bold mb-1">정책 유사도 네트워크</h2>
+                      <p className="text-sm text-slate-500 dark:text-slate-300">노드=교육청, 링크=예산구조·학교구성 유사도(임계치 이상만 연결)</p>
+                    </div>
+                    <div className="w-full lg:max-w-3xl rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
+                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold">분석 기준 가중치 조정</h3>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">기본값은 45/25/15/15이며, 입력값 합계가 100이 아니어도 계산 시 자동 정규화됩니다.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setNetworkWeights({ ...DEFAULT_NETWORK_WEIGHTS })}
+                          className="shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-100 hover:bg-white/80 dark:hover:bg-slate-700/60"
+                        >
+                          기본값 복원
+                        </button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                        {NETWORK_WEIGHT_FIELDS.map((field) => (
+                          <label key={field.key} className="block">
+                            <span className="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">{field.label}</span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={networkWeights[field.key]}
+                                onChange={(e) =>
+                                  setNetworkWeights((prev) => ({
+                                    ...prev,
+                                    [field.key]: Math.max(0, Number(e.target.value || 0)),
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 pr-8 text-sm"
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 dark:text-slate-400">%</span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+                        현재 입력값: {networkWeightSummary.labels.join(", ")} | 합계 {networkWeightSummary.total}%
+                      </p>
+                      {networkWeightSummary.isFallback && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">합계가 0%이어서 계산에는 기본 가중치 45/25/15/15를 적용합니다.</p>
+                      )}
+                    </div>
+                  </div>
                   <EChart option={networkOption} height={560} />
                   <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-3">
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
                       <h3 className="text-sm font-bold mb-2">분석 기준</h3>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">유사도는 4개 지표를 함께 사용합니다: 교당 평균 지원액(45%), 선도학교 비율(25%), 교육청 예산 비중(15%), 초등 비중(15%).</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">유사도는 4개 지표를 함께 사용합니다: {networkWeightSummary.labels.join(", ")}.</p>
                       <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">거리 기반 계산 후 `유사도 = 1 - 거리`로 환산하며, 점수가 높을수록 정책 구조가 유사합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">입력 합계가 100이 아니면 비율로 자동 정규화해 계산합니다.</p>
                     </article>
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
                       <h3 className="text-sm font-bold mb-2">해석 가이드</h3>
                       <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">각 노드는 교육청, 노드 크기는 총 지원액 규모를 의미합니다. 큰 노드일수록 예산 규모가 큽니다.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">링크가 많거나 가까운 군집은 비슷한 정책 방향을 가진 집단으로 해석할 수 있습니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">범례의 확산형/집중형은 교당 평균 지원액 기준 분류입니다. 3,500만 원 이하면 확산형, 초과하면 집중형으로 표시합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">확산형은 같은 재원을 더 많은 학교에 넓게 배분하는 성향으로, 학교당 평균 지원액은 낮아질 수 있지만 정책 도달 범위는 넓어지는 방식으로 볼 수 있습니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">집중형은 선정된 학교 수는 상대적으로 적더라도 학교당 더 큰 예산을 투입해 거점학교나 선도모델을 강하게 육성하는 방식으로 해석할 수 있습니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">링크가 많거나 가까운 군집은 비슷한 정책 방향을 가진 집단으로 해석할 수 있지만, 이는 여러 지표를 종합한 유사도 결과이므로 확산형/집중형 라벨과 항상 일치하는 것은 아닙니다.</p>
                     </article>
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
                       <h3 className="text-sm font-bold mb-2">표시 규칙</h3>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">링크는 유사도 임계치 `0.76` 이상만 표시되며, 한 노드당 최대 3개까지 연결해 복잡도를 제한합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">링크는 유사도 임계치 `0.76` 이상만 표시되며, 한 노드당 최대 5개까지 연결해 복잡도를 제한합니다.</p>
                       <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">현재 화면은 총 {REGIONAL_BUDGET.length}개 교육청을 대상으로 한 상대 비교 결과입니다.</p>
                     </article>
                   </div>
