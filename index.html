@@ -43,7 +43,6 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/recharts/umd/Recharts.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
       html,
@@ -77,9 +76,6 @@
 
     <script type="text/babel" data-presets="typescript,react">
       const { useMemo, useState, useEffect, useRef } = React;
-      const RechartsLib = window.Recharts || {};
-      const hasRecharts = !!window.Recharts;
-      const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } = RechartsLib;
 
       const REGIONAL_BUDGET = [
         { rank: 1, region: "대구", officeBudget: 0, leadCount: 312, leadAvg: 22400000, leadTotal: 7000000000, focusCount: 60, focusAvg: 20300000, focusTotal: 1220000000, totalBudget: 8220000000, totalSchools: 372, avgPerSchool: 22096774 },
@@ -26000,6 +25996,8 @@
         leadRatio: 25,
         officeRatio: 15,
         elementaryRatio: 15,
+        middleRatio: 0,
+        highRatio: 0,
       };
 
       const NETWORK_WEIGHT_FIELDS = [
@@ -26007,6 +26005,8 @@
         { key: "leadRatio", label: "선도학교 비율" },
         { key: "officeRatio", label: "교육청 예산 비중" },
         { key: "elementaryRatio", label: "초등 비중" },
+        { key: "middleRatio", label: "중등 비중" },
+        { key: "highRatio", label: "고등 비중" },
       ];
 
       function hashCode(str) {
@@ -26045,32 +26045,15 @@
         return <div ref={chartRef} style={{ height: height + "px", width: "100%" }} />;
       }
 
-      function RechartsTooltip({ active, payload, label }) {
-        if (!active || !payload || !payload.length) return null;
-        return (
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 px-3 py-2 shadow-soft">
-            {label ? <p className="text-sm font-semibold mb-1">{label}</p> : null}
-            <div className="space-y-1">
-              {payload.map((entry) => (
-                <div key={entry.name} className="flex items-center justify-between gap-4 text-xs">
-                  <span style={{ color: entry.color }}>{entry.name}</span>
-                  <span>{formatNumber(entry.value)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      }
-
       function App() {
         const [activeTab, setActiveTab] = useState("overview");
         const [darkMode, setDarkMode] = useState(false);
         const [query, setQuery] = useState("");
         const [regionFilter, setRegionFilter] = useState("전체");
         const [projectFilter, setProjectFilter] = useState("전체");
-        const [crossRegionFilter, setCrossRegionFilter] = useState("전체");
-        const [crossLevelFilter, setCrossLevelFilter] = useState("전체");
-        const [crossProjectFilter, setCrossProjectFilter] = useState("전체");
+        const [crossRegionFilter, setCrossRegionFilter] = useState([]);
+        const [crossLevelFilter, setCrossLevelFilter] = useState([]);
+        const [crossProjectFilter, setCrossProjectFilter] = useState([]);
         const [crossSearchQuery, setCrossSearchQuery] = useState("");
         const [crossChartFilters, setCrossChartFilters] = useState({ region: null, schoolLevel: null, projectType: null });
         const [detailCriteria, setDetailCriteria] = useState(null);
@@ -26136,9 +26119,9 @@
         }, []);
 
         const regionList = useMemo(() => ["전체", ...REGIONAL_BUDGET.map((d) => d.region)], []);
+        const crossRegionOptions = useMemo(() => REGIONAL_BUDGET.map((d) => d.region), []);
         const crossLevelOptions = useMemo(
           () => [
-            { value: "전체", label: "전체" },
             { value: "초등학교", label: "초" },
             { value: "중학교", label: "중" },
             { value: "고등학교", label: "고" },
@@ -26148,19 +26131,20 @@
         );
         const crossProjectOptions = useMemo(
           () => [
-            { value: "전체", label: "전체" },
             { value: "선도학교", label: "선도" },
             { value: "중점학교", label: "중점" },
           ],
           []
         );
 
+        const getMultiSelectValues = (event) => Array.from(event.target.selectedOptions, (option) => option.value);
+
         const applyCrossFilters = (rows, options = {}) => {
           const exclude = options.exclude || null;
           return rows.filter((row) => {
-            const hitGlobalRegion = crossRegionFilter === "전체" || row.region === crossRegionFilter;
-            const hitGlobalLevel = crossLevelFilter === "전체" || row.schoolLevel === crossLevelFilter;
-            const hitGlobalProject = crossProjectFilter === "전체" || row.projectType === crossProjectFilter;
+            const hitGlobalRegion = crossRegionFilter.length === 0 || crossRegionFilter.includes(row.region);
+            const hitGlobalLevel = crossLevelFilter.length === 0 || crossLevelFilter.includes(row.schoolLevel);
+            const hitGlobalProject = crossProjectFilter.length === 0 || crossProjectFilter.includes(row.projectType);
             const hitChartRegion = exclude === "region" || !crossChartFilters.region || row.region === crossChartFilters.region;
             const hitChartLevel = exclude === "schoolLevel" || !crossChartFilters.schoolLevel || row.schoolLevel === crossChartFilters.schoolLevel;
             const hitChartProject = exclude === "projectType" || !crossChartFilters.projectType || row.projectType === crossChartFilters.projectType;
@@ -26247,16 +26231,17 @@
           [crossTypeRows]
         );
 
-        const crossActiveTags = useMemo(() => {
-          const tags = [];
-          if (crossRegionFilter !== "전체") tags.push(`교육청: ${crossRegionFilter}`);
-          if (crossLevelFilter !== "전체") tags.push(`학교급: ${crossLevelFilter}`);
-          if (crossProjectFilter !== "전체") tags.push(`학교 종류: ${crossProjectFilter}`);
-          if (crossChartFilters.region) tags.push(`차트-교육청: ${crossChartFilters.region}`);
-          if (crossChartFilters.schoolLevel) tags.push(`차트-학교급: ${crossChartFilters.schoolLevel}`);
-          if (crossChartFilters.projectType) tags.push(`차트-학교 종류: ${crossChartFilters.projectType}`);
-          return tags;
-        }, [crossRegionFilter, crossLevelFilter, crossProjectFilter, crossChartFilters]);
+        const crossActiveTags = useMemo(
+          () => ({
+            region: crossRegionFilter.length ? crossRegionFilter.join(", ") : "전체 적용",
+            schoolLevel: crossLevelFilter.length ? crossLevelFilter.join(", ") : "전체 적용",
+            projectType: crossProjectFilter.length ? crossProjectFilter.join(", ") : "전체 적용",
+            chartRegion: crossChartFilters.region,
+            chartSchoolLevel: crossChartFilters.schoolLevel,
+            chartProjectType: crossChartFilters.projectType,
+          }),
+          [crossRegionFilter, crossLevelFilter, crossProjectFilter, crossChartFilters]
+        );
 
         const detailRows = useMemo(() => {
           if (!detailCriteria) return [];
@@ -26571,24 +26556,28 @@
 
         const networkWeightSummary = useMemo(() => {
           const total = NETWORK_WEIGHT_FIELDS.reduce((sum, field) => sum + Number(networkWeights[field.key] || 0), 0);
-          const effectiveWeights = total > 0 ? networkWeights : DEFAULT_NETWORK_WEIGHTS;
-          const divisor = total > 0 ? total : NETWORK_WEIGHT_FIELDS.reduce((sum, field) => sum + DEFAULT_NETWORK_WEIGHTS[field.key], 0);
+          const divisor = total > 0 ? total : NETWORK_WEIGHT_FIELDS.length;
           const normalized = NETWORK_WEIGHT_FIELDS.reduce((acc, field) => {
-            acc[field.key] = Number(effectiveWeights[field.key] || 0) / divisor;
+            acc[field.key] = total > 0 ? Number(networkWeights[field.key] || 0) / divisor : 1 / divisor;
             return acc;
           }, {});
           const labels = NETWORK_WEIGHT_FIELDS.map((field) => `${field.label}(${Number(networkWeights[field.key] || 0)}%)`);
-          return { total, normalized, labels, isFallback: total <= 0 };
+          return { total, normalized, labels, isFallback: total <= 0, fallbackLabel: `6개 지표 균등 반영(${(100 / NETWORK_WEIGHT_FIELDS.length).toFixed(1)}%씩)` };
         }, [networkWeights]);
 
         const networkOption = useMemo(() => {
           const maxAvg = Math.max(...REGIONAL_BUDGET.map((r) => r.avgPerSchool));
+          const LEAD_AVG_THRESHOLD = 22800000;
           const vectors = REGIONAL_BUDGET.map((r) => {
             const m = SCHOOL_MATRIX[r.region];
             const elementary = m.초등학교.선도학교 + m.초등학교.중점학교;
+            const middle = m.중학교.선도학교 + m.중학교.중점학교;
+            const high = m.고등학교.선도학교 + m.고등학교.중점학교;
             const leadRatio = r.leadCount / r.totalSchools;
             const officeRatio = r.officeBudget / r.totalBudget;
             const elementaryRatio = elementary / r.totalSchools;
+            const middleRatio = middle / r.totalSchools;
+            const highRatio = high / r.totalSchools;
             return {
               region: r.region,
               totalSchools: r.totalSchools,
@@ -26597,7 +26586,9 @@
               leadRatio,
               officeRatio,
               elementaryRatio,
-              vector: [r.avgPerSchool / maxAvg, leadRatio, officeRatio, elementaryRatio],
+              middleRatio,
+              highRatio,
+              vector: [r.avgPerSchool / maxAvg, leadRatio, officeRatio, elementaryRatio, middleRatio, highRatio],
             };
           });
 
@@ -26610,7 +26601,9 @@
                 Math.pow(a[0] - b[0], 2) * networkWeightSummary.normalized.avgPerSchool +
                   Math.pow(a[1] - b[1], 2) * networkWeightSummary.normalized.leadRatio +
                   Math.pow(a[2] - b[2], 2) * networkWeightSummary.normalized.officeRatio +
-                  Math.pow(a[3] - b[3], 2) * networkWeightSummary.normalized.elementaryRatio
+                  Math.pow(a[3] - b[3], 2) * networkWeightSummary.normalized.elementaryRatio +
+                  Math.pow(a[4] - b[4], 2) * networkWeightSummary.normalized.middleRatio +
+                  Math.pow(a[5] - b[5], 2) * networkWeightSummary.normalized.highRatio
               );
               const score = Math.max(0, 1 - dist);
               pairs.push({ source: vectors[i].region, target: vectors[j].region, score });
@@ -26636,7 +26629,7 @@
             name: v.region,
             value: v.totalBudget,
             symbolSize: 18 + (v.totalBudget / maxBudget) * 24,
-            category: v.avgPerSchool > 35000000 ? 1 : 0,
+            category: v.avgPerSchool > LEAD_AVG_THRESHOLD ? 1 : 0,
           }));
 
           return {
@@ -26680,6 +26673,126 @@
           };
         }, [darkMode, networkWeightSummary]);
 
+        const crossBarOption = useMemo(() => {
+          const labels = crossBarData.map((row) => row.region);
+          return {
+            backgroundColor: "transparent",
+            grid: { left: 28, right: 18, top: 44, bottom: 68, containLabel: true },
+            legend: {
+              top: 8,
+              textStyle: { color: darkMode ? "#cbd5e1" : "#334155" },
+            },
+            tooltip: {
+              trigger: "axis",
+              axisPointer: { type: "shadow" },
+            },
+            xAxis: {
+              type: "category",
+              data: labels,
+              axisLabel: { rotate: 35, color: darkMode ? "#cbd5e1" : "#334155" },
+              axisLine: { lineStyle: { color: darkMode ? "#64748b" : "#94a3b8" } },
+            },
+            yAxis: {
+              type: "value",
+              name: "학교 수",
+              nameTextStyle: { color: darkMode ? "#cbd5e1" : "#334155" },
+              axisLabel: { color: darkMode ? "#cbd5e1" : "#334155" },
+              splitLine: { lineStyle: { color: darkMode ? "rgba(148,163,184,0.18)" : "rgba(148,163,184,0.3)" } },
+            },
+            series: [
+              {
+                name: "선도학교",
+                type: "bar",
+                stack: "schools",
+                emphasis: { focus: "series" },
+                itemStyle: { color: "#10b981", borderRadius: [6, 6, 0, 0] },
+                data: crossBarData.map((row) => row.선도학교),
+              },
+              {
+                name: "중점학교",
+                type: "bar",
+                stack: "schools",
+                emphasis: { focus: "series" },
+                itemStyle: { color: "#f59e0b", borderRadius: [6, 6, 0, 0] },
+                data: crossBarData.map((row) => row.중점학교),
+              },
+            ],
+          };
+        }, [crossBarData, darkMode]);
+
+        const crossLevelOption = useMemo(() => {
+          return {
+            backgroundColor: "transparent",
+            title: {
+              text: formatNumber(crossLevelRows.length),
+              subtext: "School Level",
+              left: "center",
+              top: "40%",
+              textStyle: { color: darkMode ? "#f8fafc" : "#0f172a", fontFamily: "Space Grotesk, Noto Sans KR, sans-serif", fontSize: 28, fontWeight: 700 },
+              subtextStyle: { color: darkMode ? "#94a3b8" : "#64748b", fontSize: 11, letterSpacing: 2 },
+            },
+            tooltip: {
+              trigger: "item",
+              formatter: (params) => `${params.name}<br/><b>${formatNumber(params.value)}개교</b>`,
+            },
+            legend: {
+              bottom: 0,
+              textStyle: { color: darkMode ? "#cbd5e1" : "#334155" },
+            },
+            series: [
+              {
+                name: "학교급별 분포",
+                type: "pie",
+                radius: ["48%", "72%"],
+                center: ["50%", "45%"],
+                avoidLabelOverlap: true,
+                itemStyle: { borderColor: darkMode ? "#0f172a" : "#ffffff", borderWidth: 2 },
+                label: { show: true, formatter: "{b}\n{d}%", color: darkMode ? "#e2e8f0" : "#334155" },
+                data: crossLevelData.map((item, index) => ({
+                  ...item,
+                  itemStyle: {
+                    color: ["#38bdf8", "#14b8a6", "#a78bfa", "#f97316"][index % 4],
+                    borderWidth: crossChartFilters.schoolLevel === item.name ? 4 : 2,
+                    borderColor: crossChartFilters.schoolLevel === item.name ? (darkMode ? "#f8fafc" : "#0f172a") : darkMode ? "#0f172a" : "#ffffff",
+                  },
+                })),
+              },
+            ],
+          };
+        }, [crossLevelData, crossLevelRows.length, crossChartFilters.schoolLevel, darkMode]);
+
+        const crossTypeOption = useMemo(() => {
+          return {
+            backgroundColor: "transparent",
+            tooltip: {
+              trigger: "item",
+              formatter: (params) => `${params.name}<br/><b>${formatNumber(params.value)}개교</b> (${params.percent}%)`,
+            },
+            legend: {
+              bottom: 0,
+              textStyle: { color: darkMode ? "#cbd5e1" : "#334155" },
+            },
+            series: [
+              {
+                name: "학교 종류별 분포",
+                type: "pie",
+                radius: "72%",
+                center: ["50%", "44%"],
+                itemStyle: { borderColor: darkMode ? "#0f172a" : "#ffffff", borderWidth: 2 },
+                label: { show: true, formatter: "{b}\n{d}%", color: darkMode ? "#e2e8f0" : "#334155" },
+                data: crossTypeData.map((item) => ({
+                  ...item,
+                  itemStyle: {
+                    color: item.name === "선도학교" ? "#10b981" : "#f59e0b",
+                    borderWidth: crossChartFilters.projectType === item.name ? 4 : 2,
+                    borderColor: crossChartFilters.projectType === item.name ? (darkMode ? "#f8fafc" : "#0f172a") : darkMode ? "#0f172a" : "#ffffff",
+                  },
+                })),
+              },
+            ],
+          };
+        }, [crossTypeData, crossChartFilters.projectType, darkMode]);
+
         const handleTreemapClick = (params) => {
           if (!params || params.seriesType !== "treemap") return;
           const names = (params.treePathInfo || []).map((p) => p.name).filter(Boolean);
@@ -26709,6 +26822,21 @@
           });
         };
 
+        const handleCrossBarClick = (params) => {
+          if (!params || params.componentType !== "series") return;
+          toggleCrossChartFilter("region", params.name);
+        };
+
+        const handleCrossLevelClick = (params) => {
+          if (!params || params.componentType !== "series") return;
+          toggleCrossChartFilter("schoolLevel", params.name);
+        };
+
+        const handleCrossTypeClick = (params) => {
+          if (!params || params.componentType !== "series") return;
+          toggleCrossChartFilter("projectType", params.name);
+        };
+
         const toggleCrossChartFilter = (key, value) => {
           if (!value) return;
           setCrossChartFilters((prev) => ({
@@ -26718,9 +26846,9 @@
         };
 
         const resetCrossFilters = () => {
-          setCrossRegionFilter("전체");
-          setCrossLevelFilter("전체");
-          setCrossProjectFilter("전체");
+          setCrossRegionFilter([]);
+          setCrossLevelFilter([]);
+          setCrossProjectFilter([]);
           setCrossSearchQuery("");
           setCrossChartFilters({ region: null, schoolLevel: null, projectType: null });
         };
@@ -26967,16 +27095,16 @@
 
               {activeTab === "network" && (
                 <section className={"rounded-2xl p-4 md:p-5 shadow-soft " + darkCard}>
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-4">
+                  <div className="mb-4">
                     <div>
                       <h2 className="font-display text-lg font-bold mb-1">정책 유사도 네트워크</h2>
                       <p className="text-sm text-slate-500 dark:text-slate-300">노드=교육청, 링크=예산구조·학교구성 유사도(임계치 이상만 연결)</p>
                     </div>
-                    <div className="w-full lg:max-w-3xl rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
-                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="mt-4 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <h3 className="text-sm font-bold">분석 기준 가중치 조정</h3>
-                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">기본값은 45/25/15/15이며, 입력값 합계가 100이 아니어도 계산 시 자동 정규화됩니다.</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">초등·중등·고등 비중을 포함한 6개 지표를 조정합니다. 기본값은 기존 45/25/15/15를 유지하고, 중등·고등 비중만 0%에서 시작합니다. 입력값 합계가 100이 아니어도 계산 시 자동 정규화됩니다.</p>
                         </div>
                         <button
                           type="button"
@@ -26986,7 +27114,7 @@
                           기본값 복원
                         </button>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
                         {NETWORK_WEIGHT_FIELDS.map((field) => (
                           <label key={field.key} className="block">
                             <span className="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">{field.label}</span>
@@ -27013,24 +27141,24 @@
                         현재 입력값: {networkWeightSummary.labels.join(", ")} | 합계 {networkWeightSummary.total}%
                       </p>
                       {networkWeightSummary.isFallback && (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">합계가 0%이어서 계산에는 기본 가중치 45/25/15/15를 적용합니다.</p>
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">합계가 0%이어서 계산에는 {networkWeightSummary.fallbackLabel}을 적용합니다.</p>
                       )}
                     </div>
                   </div>
-                  <EChart option={networkOption} height={560} />
+                  <EChart option={networkOption} height={728} />
                   <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-3">
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
                       <h3 className="text-sm font-bold mb-2">분석 기준</h3>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">유사도는 4개 지표를 함께 사용합니다: {networkWeightSummary.labels.join(", ")}.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">거리 기반 계산 후 `유사도 = 1 - 거리`로 환산하며, 점수가 높을수록 정책 구조가 유사합니다.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">입력 합계가 100이 아니면 비율로 자동 정규화해 계산합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">유사도는 6개 지표를 함께 사용합니다: {networkWeightSummary.labels.join(", ")}.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">교당 평균 지원액, 선도학교 비율, 교육청 예산 비중, 초등 비중, 중등 비중, 고등 비중을 거리 기반으로 비교한 뒤 `유사도 = 1 - 거리`로 환산합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">입력 합계가 100이 아니면 비율로 자동 정규화하며, 모든 입력이 0%이면 6개 지표를 동일 비중으로 반영합니다.</p>
                     </article>
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
                       <h3 className="text-sm font-bold mb-2">해석 가이드</h3>
                       <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200">각 노드는 교육청, 노드 크기는 총 지원액 규모를 의미합니다. 큰 노드일수록 예산 규모가 큽니다.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">범례의 확산형/집중형은 교당 평균 지원액 기준 분류입니다. 3,500만 원 이하면 확산형, 초과하면 집중형으로 표시합니다.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">확산형은 같은 재원을 더 많은 학교에 넓게 배분하는 성향으로, 학교당 평균 지원액은 낮아질 수 있지만 정책 도달 범위는 넓어지는 방식으로 볼 수 있습니다.</p>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">집중형은 선정된 학교 수는 상대적으로 적더라도 학교당 더 큰 예산을 투입해 거점학교나 선도모델을 강하게 육성하는 방식으로 해석할 수 있습니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">범례의 확산형/집중형은 교당 평균 지원액 기준 분류입니다. AI·디지털 활용 선도학교 평균 지원액인 약 2,280만 원 이하면 확산형, 초과하면 집중형으로 표시합니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">확산형은 선도학교 평균 지원액 기준보다 낮은 수준에서 더 많은 학교에 재원을 넓게 배분하는 성향으로 해석할 수 있습니다.</p>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">집중형은 선도학교 평균 지원액 기준보다 높은 수준으로 학교당 더 큰 예산을 투입해 거점학교나 선도모델을 강하게 육성하는 방식으로 볼 수 있습니다.</p>
                       <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 mt-2">링크가 많거나 가까운 군집은 비슷한 정책 방향을 가진 집단으로 해석할 수 있지만, 이는 여러 지표를 종합한 유사도 결과이므로 확산형/집중형 라벨과 항상 일치하는 것은 아닙니다.</p>
                     </article>
                     <article className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3">
@@ -27044,38 +27172,32 @@
 
               {activeTab === "crossfilter" && (
                 <section className="space-y-5">
-                  {!hasRecharts && (
-                    <section className={"rounded-2xl p-4 md:p-5 shadow-soft " + darkCard}>
-                      <h2 className="font-display text-lg font-bold mb-2">차트 라이브러리 로드 실패</h2>
-                      <p className="text-sm text-slate-500 dark:text-slate-300">
-                        `Recharts` CDN을 불러오지 못해 교차 분석 차트가 렌더링되지 않았습니다. 이 경우에도 전체 페이지는 표시되어야 하며,
-                        네트워크가 허용된 브라우저에서 새로고침하면 정상 로드됩니다.
-                      </p>
-                    </section>
-                  )}
                   <section className={"rounded-2xl p-4 md:p-5 shadow-soft " + darkCard}>
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1">
                         <label className="block">
                           <span className="block text-sm font-semibold mb-2">교육청 선택</span>
                           <select
+                            multiple
                             value={crossRegionFilter}
-                            onChange={(e) => setCrossRegionFilter(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                            onChange={(e) => setCrossRegionFilter(getMultiSelectValues(e))}
+                            className="w-full h-32 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
                           >
-                            {regionList.map((region) => (
+                            {crossRegionOptions.map((region) => (
                               <option key={region} value={region}>
                                 {region}
                               </option>
                             ))}
                           </select>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-2">여러 항목을 선택하려면 Ctrl을 누르고 클릭하세요. 선택이 없으면 전체로 적용됩니다.</span>
                         </label>
                         <label className="block">
                           <span className="block text-sm font-semibold mb-2">학교급 선택</span>
                           <select
+                            multiple
                             value={crossLevelFilter}
-                            onChange={(e) => setCrossLevelFilter(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                            onChange={(e) => setCrossLevelFilter(getMultiSelectValues(e))}
+                            className="w-full h-32 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
                           >
                             {crossLevelOptions.map((item) => (
                               <option key={item.value} value={item.value}>
@@ -27083,13 +27205,15 @@
                               </option>
                             ))}
                           </select>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-2">여러 항목을 선택하려면 Ctrl을 누르고 클릭하세요. 선택이 없으면 전체로 적용됩니다.</span>
                         </label>
                         <label className="block">
                           <span className="block text-sm font-semibold mb-2">학교 종류 선택</span>
                           <select
+                            multiple
                             value={crossProjectFilter}
-                            onChange={(e) => setCrossProjectFilter(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                            onChange={(e) => setCrossProjectFilter(getMultiSelectValues(e))}
+                            className="w-full h-32 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
                           >
                             {crossProjectOptions.map((item) => (
                               <option key={item.value} value={item.value}>
@@ -27097,23 +27221,31 @@
                               </option>
                             ))}
                           </select>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-2">여러 항목을 선택하려면 Ctrl을 누르고 클릭하세요. 선택이 없으면 전체로 적용됩니다.</span>
                         </label>
                       </div>
                       <div className="flex flex-col items-start xl:items-end gap-3">
-                        <div className="flex flex-wrap gap-2">
-                          {crossActiveTags.length ? (
-                            crossActiveTags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="px-3 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200"
-                              >
-                                {tag}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                              현재 적용된 추가 필터 없음
-                            </span>
+                        <div className="w-full xl:w-[320px] space-y-2">
+                          <div className="px-3 py-2 rounded-2xl text-xs font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">
+                            교육청: {crossActiveTags.region}
+                          </div>
+                          <div className="px-3 py-2 rounded-2xl text-xs font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">
+                            학교급: {crossActiveTags.schoolLevel}
+                          </div>
+                          <div className="px-3 py-2 rounded-2xl text-xs font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200">
+                            학교 종류: {crossActiveTags.projectType}
+                          </div>
+                          {(crossActiveTags.chartRegion || crossActiveTags.chartSchoolLevel || crossActiveTags.chartProjectType) && (
+                            <div className="px-3 py-2 rounded-2xl text-xs font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              차트 선택:
+                              {[
+                                crossActiveTags.chartRegion ? ` 교육청 ${crossActiveTags.chartRegion}` : null,
+                                crossActiveTags.chartSchoolLevel ? ` 학교급 ${crossActiveTags.chartSchoolLevel}` : null,
+                                crossActiveTags.chartProjectType ? ` 학교종류 ${crossActiveTags.chartProjectType}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" / ")}
+                            </div>
                           )}
                         </div>
                         <button
@@ -27160,39 +27292,8 @@
                         )}
                       </div>
                       <div style={{ height: "320px" }}>
-                        {hasRecharts && crossBarData.some((row) => row.선도학교 || row.중점학교) ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={crossBarData} margin={{ top: 8, right: 8, left: -18, bottom: 48 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#e2e8f0"} />
-                              <XAxis
-                                dataKey="region"
-                                angle={-35}
-                                textAnchor="end"
-                                interval={0}
-                                height={60}
-                                tick={{ fontSize: 11, fill: darkMode ? "#cbd5e1" : "#475569" }}
-                              />
-                              <YAxis tick={{ fontSize: 11, fill: darkMode ? "#cbd5e1" : "#475569" }} />
-                              <Tooltip content={<RechartsTooltip />} />
-                              <Legend />
-                              <Bar
-                                dataKey="선도학교"
-                                stackId="schools"
-                                fill="#10b981"
-                                radius={[8, 8, 0, 0]}
-                                className="chart-hit"
-                                onClick={(entry) => toggleCrossChartFilter("region", entry?.region || entry?.payload?.region)}
-                              />
-                              <Bar
-                                dataKey="중점학교"
-                                stackId="schools"
-                                fill="#f59e0b"
-                                radius={[8, 8, 0, 0]}
-                                className="chart-hit"
-                                onClick={(entry) => toggleCrossChartFilter("region", entry?.region || entry?.payload?.region)}
-                              />
-                            </BarChart>
-                          </ResponsiveContainer>
+                        {crossBarData.some((row) => row.선도학교 || row.중점학교) ? (
+                          <EChart option={crossBarOption} height={320} onClick={handleCrossBarClick} />
                         ) : (
                           <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-300">
                             현재 조건에 해당하는 데이터가 없습니다.
@@ -27218,40 +27319,8 @@
                         )}
                       </div>
                       <div className="relative" style={{ height: "320px" }}>
-                        {hasRecharts && crossLevelData.length ? (
-                          <>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Tooltip content={<RechartsTooltip />} />
-                                <Legend />
-                                <Pie
-                                  data={crossLevelData}
-                                  dataKey="value"
-                                  nameKey="name"
-                                  innerRadius={68}
-                                  outerRadius={112}
-                                  paddingAngle={3}
-                                  className="chart-hit"
-                                  onClick={(entry) => toggleCrossChartFilter("schoolLevel", entry?.name)}
-                                >
-                                  {crossLevelData.map((entry, index) => (
-                                    <Cell
-                                      key={entry.name}
-                                      fill={["#38bdf8", "#14b8a6", "#a78bfa", "#f97316"][index % 4]}
-                                      stroke={crossChartFilters.schoolLevel === entry.name ? (darkMode ? "#f8fafc" : "#0f172a") : "#ffffff"}
-                                      strokeWidth={crossChartFilters.schoolLevel === entry.name ? 3 : 1}
-                                    />
-                                  ))}
-                                </Pie>
-                              </PieChart>
-                            </ResponsiveContainer>
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                              <div className="text-center">
-                                <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">School Level</p>
-                                <p className="font-display text-2xl font-bold">{formatNumber(crossLevelRows.length)}</p>
-                              </div>
-                            </div>
-                          </>
+                        {crossLevelData.length ? (
+                          <EChart option={crossLevelOption} height={320} onClick={handleCrossLevelClick} />
                         ) : (
                           <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-300">
                             현재 조건에 해당하는 데이터가 없습니다.
@@ -27277,32 +27346,8 @@
                         )}
                       </div>
                       <div style={{ height: "320px" }}>
-                        {hasRecharts && crossTypeData.length ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Tooltip content={<RechartsTooltip />} />
-                              <Legend />
-                              <Pie
-                                data={crossTypeData}
-                                dataKey="value"
-                                nameKey="name"
-                                outerRadius={112}
-                                paddingAngle={2}
-                                className="chart-hit"
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                onClick={(entry) => toggleCrossChartFilter("projectType", entry?.name)}
-                              >
-                                {crossTypeData.map((entry) => (
-                                  <Cell
-                                    key={entry.name}
-                                    fill={entry.name === "선도학교" ? "#10b981" : "#f59e0b"}
-                                    stroke={crossChartFilters.projectType === entry.name ? (darkMode ? "#f8fafc" : "#0f172a") : "#ffffff"}
-                                    strokeWidth={crossChartFilters.projectType === entry.name ? 3 : 1}
-                                  />
-                                ))}
-                              </Pie>
-                            </PieChart>
-                          </ResponsiveContainer>
+                        {crossTypeData.length ? (
+                          <EChart option={crossTypeOption} height={320} onClick={handleCrossTypeClick} />
                         ) : (
                           <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-300">
                             현재 조건에 해당하는 데이터가 없습니다.
