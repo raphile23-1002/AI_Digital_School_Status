@@ -26025,22 +26025,68 @@
 
       function EChart({ option, height = 420, onClick = null }) {
         const chartRef = useRef(null);
+        const chartInstanceRef = useRef(null);
 
         useEffect(() => {
           if (!chartRef.current || !window.echarts) return;
+
           const chart = window.echarts.init(chartRef.current, null, { renderer: "canvas" });
-          chart.setOption(option);
+          chartInstanceRef.current = chart;
+
+          const resizeChart = () => {
+            chart.resize();
+          };
+
+          const rafA = requestAnimationFrame(() => {
+            resizeChart();
+            requestAnimationFrame(resizeChart);
+          });
+
+          const resizeObserver =
+            typeof ResizeObserver !== "undefined"
+              ? new ResizeObserver(() => {
+                  resizeChart();
+                })
+              : null;
+
+          if (resizeObserver) {
+            resizeObserver.observe(chartRef.current);
+          }
+
+          window.addEventListener("resize", resizeChart);
+
+          return () => {
+            cancelAnimationFrame(rafA);
+            if (resizeObserver) {
+              resizeObserver.disconnect();
+            }
+            window.removeEventListener("resize", resizeChart);
+            chart.dispose();
+            chartInstanceRef.current = null;
+          };
+        }, []);
+
+        useEffect(() => {
+          const chart = chartInstanceRef.current;
+          if (!chart) return;
+          chart.setOption(option, { notMerge: true });
+          chart.resize();
+        }, [option]);
+
+        useEffect(() => {
+          const chart = chartInstanceRef.current;
+          if (!chart) return;
+          chart.off("click");
           if (onClick) {
             chart.on("click", onClick);
           }
 
-          const onResize = () => chart.resize();
-          window.addEventListener("resize", onResize);
           return () => {
-            window.removeEventListener("resize", onResize);
-            chart.dispose();
+            if (chart && onClick) {
+              chart.off("click", onClick);
+            }
           };
-        }, [option, onClick]);
+        }, [onClick]);
 
         return <div ref={chartRef} style={{ height: height + "px", width: "100%" }} />;
       }
