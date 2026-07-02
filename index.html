@@ -74,7 +74,7 @@
   <body class="text-ink dark:text-slate-100">
     <div id="root"></div>
 
-    <script type="text/babel" data-presets="typescript,react">
+    <script id="app-source" type="text/plain">
       const { useMemo, useState, useEffect, useRef } = React;
 
       const REGIONAL_BUDGET = [
@@ -27616,6 +27616,16 @@
       }
 
       ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+    <script>
+      const appSource = document.getElementById("app-source")?.textContent ?? "";
+      const compiledApp = Babel.transform(appSource, {
+        presets: ["env", "typescript"],
+        plugins: [["transform-react-jsx", { runtime: "classic" }]],
+      }).code;
+      const appScript = document.createElement("script");
+      appScript.text = compiledApp;
+      document.body.appendChild(appScript);
     </script>
   </body>
 </html>
