@@ -27620,6 +27620,7 @@
     <script>
       const appSource = document.getElementById("app-source")?.textContent ?? "";
       const compiledApp = Babel.transform(appSource, {
+        filename: "app.tsx",
         presets: ["env", "typescript"],
         plugins: [["transform-react-jsx", { runtime: "classic" }]],
       }).code;
